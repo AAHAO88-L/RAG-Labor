@@ -1,0 +1,25 @@
+# 环境变量（包含 API Key，不上传）
+.env
+
+# Python 缓存
+__pycache__/
+*.pyc
+*.pyo
+
+# 虚拟环境
+.venv/
+
+# 向量索引（体积大，可重现）
+*.faiss
+index_meta.json
+
+# 模型缓存
+hf_models/
+
+# IDE 配置
+.vscode/
+.idea/
+
+# 操作系统文件
+.DS_Store
+Thumbs.db
