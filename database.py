@@ -4,18 +4,24 @@ import sqlite3
 import os
 import json
 import time
+import threading
 
 DB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "conversations")
 DB_PATH = os.path.join(DB_DIR, "conversations.db")
 os.makedirs(DB_DIR, exist_ok=True)
 
+_local = threading.local()
+
 
 def get_conn():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
-    return conn
+    """获取当前线程的数据库连接（自动复用）。"""
+    if not hasattr(_local, "conn") or _local.conn is None:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys=ON")
+        _local.conn = conn
+    return _local.conn
 
 
 def init_db():
@@ -26,6 +32,7 @@ def init_db():
             username TEXT UNIQUE NOT NULL,
             hashed_password TEXT NOT NULL,
             display_name TEXT DEFAULT '',
+            avatar TEXT DEFAULT '',
             created_at REAL NOT NULL
         );
         CREATE TABLE IF NOT EXISTS conversations (
@@ -40,7 +47,6 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_conversations_user ON conversations(user_id);
     """)
     conn.commit()
-    conn.close()
 
 
 # ── 用户操作 ──
@@ -58,37 +64,47 @@ def create_user(username, hashed_password):
         return user_id
     except sqlite3.IntegrityError:
         return None
-    finally:
-        conn.close()
 
 
 def get_user_by_username(username):
-    conn = get_conn()
-    row = conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
-    conn.close()
-    if row:
-        return dict(row)
-    return None
+    row = get_conn().execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
+    return dict(row) if row else None
 
 
 def get_user_by_id(user_id):
+    row = get_conn().execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def update_user_avatar(user_id, avatar_b64):
     conn = get_conn()
-    row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
-    conn.close()
-    if row:
-        return dict(row)
-    return None
+    conn.execute("UPDATE users SET avatar = ? WHERE id = ?", (avatar_b64, user_id))
+    conn.commit()
+
+
+def update_user_password(user_id, hashed_password):
+    conn = get_conn()
+    conn.execute("UPDATE users SET hashed_password = ? WHERE id = ?", (hashed_password, user_id))
+    conn.commit()
 
 
 # ── 对话操作（带用户隔离）──
 
-def list_conversations(user_id):
+def list_conversations(user_id, search=None, limit=200, offset=0):
     conn = get_conn()
-    rows = conn.execute(
-        "SELECT id, title, messages, pinned, updated_at FROM conversations WHERE user_id = ? ORDER BY pinned DESC, updated_at DESC",
-        (user_id,),
-    ).fetchall()
-    conn.close()
+    if search:
+        rows = conn.execute(
+            """SELECT id, title, messages, pinned, updated_at FROM conversations
+               WHERE user_id = ? AND (title LIKE ? OR messages LIKE ?)
+               ORDER BY pinned DESC, updated_at DESC LIMIT ? OFFSET ?""",
+            (user_id, f"%{search}%", f"%{search}%", limit, offset),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            """SELECT id, title, messages, pinned, updated_at FROM conversations
+               WHERE user_id = ? ORDER BY pinned DESC, updated_at DESC LIMIT ? OFFSET ?""",
+            (user_id, limit, offset),
+        ).fetchall()
 
     convs = []
     for row in rows:
@@ -118,31 +134,30 @@ def create_conversation(conv_id, user_id):
         (conv_id, user_id, now, now),
     )
     conn.commit()
-    conn.close()
 
 
 def save_conversation(conv_id, user_id, title, messages):
     conn = get_conn()
     now = time.time()
     row = conn.execute(
-        "SELECT pinned FROM conversations WHERE id = ? AND user_id = ?", (conv_id, user_id)
+        "SELECT pinned, title FROM conversations WHERE id = ? AND user_id = ?", (conv_id, user_id)
     ).fetchone()
     pinned = 1 if (row and row["pinned"]) else 0
+    existing_title = row["title"] if row else None
+    if existing_title:
+        title = existing_title
     conn.execute(
         """INSERT OR REPLACE INTO conversations (id, user_id, title, messages, pinned, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?, COALESCE((SELECT created_at FROM conversations WHERE id = ? AND user_id = ?), ?), ?)""",
         (conv_id, user_id, title, json.dumps(messages, ensure_ascii=False), pinned, conv_id, user_id, now, now),
     )
     conn.commit()
-    conn.close()
 
 
 def load_conversation(conv_id, user_id):
-    conn = get_conn()
-    row = conn.execute(
+    row = get_conn().execute(
         "SELECT title, messages FROM conversations WHERE id = ? AND user_id = ?", (conv_id, user_id)
     ).fetchone()
-    conn.close()
     if row:
         return {"title": row["title"], "messages": json.loads(row["messages"])}
     return None
@@ -152,7 +167,6 @@ def delete_conversation(conv_id, user_id):
     conn = get_conn()
     conn.execute("DELETE FROM conversations WHERE id = ? AND user_id = ?", (conv_id, user_id))
     conn.commit()
-    conn.close()
 
 
 def toggle_pin(conv_id, user_id):
@@ -162,7 +176,6 @@ def toggle_pin(conv_id, user_id):
         (conv_id, user_id),
     )
     conn.commit()
-    conn.close()
 
 
 def rename_conversation(conv_id, user_id, title):
@@ -170,4 +183,3 @@ def rename_conversation(conv_id, user_id, title):
     conn.execute("UPDATE conversations SET title = ?, updated_at = ? WHERE id = ? AND user_id = ?",
                  (title, time.time(), conv_id, user_id))
     conn.commit()
-    conn.close()

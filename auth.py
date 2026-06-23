@@ -9,7 +9,9 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 import database as db
 
-SECRET_KEY = os.getenv("JWT_SECRET", "rag-labor-secret-key-change-in-production")
+SECRET_KEY = os.getenv("JWT_SECRET")
+if not SECRET_KEY:
+    raise RuntimeError("请在 .env 文件中设置 JWT_SECRET（建议使用 openssl rand -hex 32 生成）")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_DAYS = 7
 
@@ -56,4 +58,4 @@ def get_current_user(
     user = db.get_user_by_id(user_id)
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户不存在")
-    return user
+    return dict(user)

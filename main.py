@@ -1,6 +1,8 @@
 import os
 import json
 import argparse
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from uuid import uuid4
 import chromadb
 import numpy as np
 from models.embeddings import embed_texts
@@ -85,49 +87,59 @@ def rewrite_query(question):
 def hyde_retrieve(question, top_k=DEFAULT_TOP_K):
     """HyDE（假设文档嵌入）检索：先让LLM生成一个假想回答，再用它去搜。"""
     hyde_prompt = (
-        "你是一名劳动法律师。请根据以下问题，撰写一段专业、详细的回答。"
-        "如果不知道具体法条，可以根据法律常识合理推断。\n\n"
-        f"问题：{question}"
+        "你是劳动法专家。请用一两句话简要回答以下问题：\n\n"
+        f"问题：{question}\n\n"
+        "回答："
     )
     try:
-        hypothetical_answer = llm.generate_simple(hyde_prompt, max_tokens=512)
+        hypothetical_answer = llm.generate_simple(hyde_prompt, max_tokens=120)
         return retrieve_with_scores(hypothetical_answer, top_k=top_k)
     except Exception:
         return retrieve_with_scores(question, top_k=top_k)
 
 
 def multi_retrieve(question, top_k=DEFAULT_TOP_K):
-    """Layer 3: 多路检索 + 合并去重。
-    先做 Query Rewrite 多路检索，如果结果不足再做 HyDE 兜底。"""
-    queries = rewrite_query(question)
-    seen_texts = set()
-    merged = []
+    """并行执行 Query Rewrite + HyDE 检索，合并去重。"""
+    # 先做一次直接检索，用户可能已经在等了
+    direct_results = retrieve_with_scores(question, top_k=top_k)
+    seen_texts = set(r['text'] for r in direct_results)
+    merged = list(direct_results)
 
-    for q in queries:
-        results = retrieve_with_scores(q, top_k=top_k)
-        for r in results:
-            if r['text'] not in seen_texts:
-                seen_texts.add(r['text'])
-                merged.append(r)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        f_rewrite = pool.submit(_rewrite_then_search, question, top_k)
+        f_hyde = pool.submit(_hyde_then_search, question, top_k)
+
+        for future in as_completed([f_rewrite, f_hyde]):
+            results = future.result()
+            for r in (results or []):
+                if r['text'] not in seen_texts:
+                    seen_texts.add(r['text'])
+                    merged.append(r)
 
     merged.sort(key=lambda x: x['score'], reverse=True)
-
-    if len(merged) < 3:
-        hyde_results = hyde_retrieve(question, top_k=top_k)
-        for r in hyde_results:
-            if r['text'] not in seen_texts:
-                seen_texts.add(r['text'])
-                merged.append(r)
-        merged.sort(key=lambda x: x['score'], reverse=True)
-
     return merged[:top_k]
 
 
+def _rewrite_then_search(question, top_k):
+    """查询改写 + 多路检索"""
+    queries = rewrite_query(question)
+    seen = set()
+    merged = []
+    for q in queries:
+        results = retrieve_with_scores(q, top_k=top_k)
+        for r in results:
+            if r['text'] not in seen:
+                seen.add(r['text'])
+                merged.append(r)
+    return merged
+
+
+def _hyde_then_search(question, top_k):
+    """HyDE 检索：生成假想答案后检索"""
+    return hyde_retrieve(question, top_k=top_k)
+
+
 def build_messages(history, contexts, question):
-    """Layer 1: 松绑系统提示词。
-    - 优先根据知识库回答
-    - 信息不足时允许使用自身常识
-    - 必须明确标注信息来源"""
     ctx_parts = []
     for c in contexts:
         source = c.get('meta', {}).get('source', '未知来源')
@@ -147,9 +159,12 @@ def build_messages(history, contexts, question):
     )
 
     messages = [{"role": "system", "content": system}]
-    for user_q, assistant_a in history:
-        messages.append({"role": "user", "content": user_q})
-        messages.append({"role": "assistant", "content": assistant_a})
+    for item in history:
+        if isinstance(item, dict):
+            messages.append({"role": item.get("role", "user"), "content": item.get("content", "")})
+        elif isinstance(item, (list, tuple)) and len(item) == 2:
+            messages.append({"role": "user", "content": item[0]})
+            messages.append({"role": "assistant", "content": item[1]})
     messages.append({"role": "user", "content": question})
     return messages
 
@@ -185,8 +200,11 @@ if __name__ == "__main__":
         import ingest
         ingest.build_index()
     elif args.ask:
+        import database as db
+        db.init_db()
         q = ' '.join(args.ask)
         history = []
+        conv_id = uuid4().hex[:12]
         while True:
             answer, contexts, low_conf = ask(q, history)
             print("=== 回答 ===")
@@ -197,6 +215,12 @@ if __name__ == "__main__":
             for c in contexts:
                 print(f"- {c['meta']['source']} (chunk {c['meta']['chunk_id']}, score={c['score']})")
             history.append((q, answer))
+            msgs = []
+            for h in history:
+                msgs.append({"role": "user", "content": h[0]})
+                msgs.append({"role": "assistant", "content": h[1]})
+            # CLI 模式存到匿名用户（user_id=0），方便后续查看
+            db.save_conversation(conv_id, 0, q, msgs)
             try:
                 q = input("\n输入下一个问题（输入 q 退出）: ")
             except (EOFError, KeyboardInterrupt):

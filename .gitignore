@@ -9,6 +9,12 @@ __pycache__/
 # 虚拟环境
 .venv/
 
+# 向量数据库 (ChromaDB)
+chroma_db/
+
+# 对话数据库
+conversations/*.db
+
 # 向量索引（体积大，可重现）
 *.faiss
 index_meta.json
