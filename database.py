@@ -45,6 +45,28 @@ def init_db():
             updated_at REAL NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_conversations_user ON conversations(user_id);
+        CREATE TABLE IF NOT EXISTS contracts (
+            id TEXT PRIMARY KEY,
+            user_id INTEGER NOT NULL REFERENCES users(id),
+            filename TEXT NOT NULL,
+            full_text TEXT NOT NULL,
+            created_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_contracts_user ON contracts(user_id);
+        CREATE TABLE IF NOT EXISTS feedback (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            conversation_id TEXT NOT NULL,
+            user_id INTEGER NOT NULL REFERENCES users(id),
+            message_index INTEGER NOT NULL,
+            query_text TEXT NOT NULL,
+            answer_text TEXT NOT NULL,
+            rating INTEGER NOT NULL CHECK(rating IN (1, -1)),
+            sources_json TEXT DEFAULT '',
+            comment TEXT DEFAULT '',
+            created_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_feedback_user ON feedback(user_id);
+        CREATE INDEX IF NOT EXISTS idx_feedback_rating ON feedback(rating);
     """)
     conn.commit()
 
@@ -182,4 +204,60 @@ def rename_conversation(conv_id, user_id, title):
     conn = get_conn()
     conn.execute("UPDATE conversations SET title = ?, updated_at = ? WHERE id = ? AND user_id = ?",
                  (title, time.time(), conv_id, user_id))
+    conn.commit()
+
+
+# ── 反馈操作 ──
+
+def save_feedback(conversation_id, user_id, message_index, query_text, answer_text, rating, sources_json="", comment=""):
+    conn = get_conn()
+    now = time.time()
+    conn.execute(
+        """INSERT INTO feedback (conversation_id, user_id, message_index, query_text, answer_text, rating, sources_json, comment, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (conversation_id, user_id, message_index, query_text, answer_text, rating, sources_json, comment, now),
+    )
+    conn.commit()
+    return conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+
+def get_feedback_stats():
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT COUNT(*) as total, SUM(CASE WHEN rating=1 THEN 1 ELSE 0 END) as thumbs_up, SUM(CASE WHEN rating=-1 THEN 1 ELSE 0 END) as thumbs_down FROM feedback"
+    ).fetchone()
+    return dict(row) if row else {"total": 0, "thumbs_up": 0, "thumbs_down": 0}
+
+
+# ── 合同操作 ──
+
+def create_contract(contract_id, user_id, filename, full_text):
+    conn = get_conn()
+    now = time.time()
+    conn.execute(
+        "INSERT INTO contracts (id, user_id, filename, full_text, created_at) VALUES (?, ?, ?, ?, ?)",
+        (contract_id, user_id, filename, full_text, now),
+    )
+    conn.commit()
+
+
+def list_contracts(user_id):
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT id, filename, created_at FROM contracts WHERE user_id = ? ORDER BY created_at DESC",
+        (user_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_contract(contract_id, user_id):
+    row = get_conn().execute(
+        "SELECT * FROM contracts WHERE id = ? AND user_id = ?", (contract_id, user_id)
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def delete_contract(contract_id, user_id):
+    conn = get_conn()
+    conn.execute("DELETE FROM contracts WHERE id = ? AND user_id = ?", (contract_id, user_id))
     conn.commit()

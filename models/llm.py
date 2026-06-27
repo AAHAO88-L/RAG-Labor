@@ -1,4 +1,6 @@
 import os
+import json
+import hashlib
 import requests
 from dotenv import load_dotenv
 
@@ -7,6 +9,16 @@ _env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".env
 load_dotenv(dotenv_path=_env_path, override=True)
 
 DEEPSEEK_API_URL = os.getenv("DEEPSEEK_API_URL", "https://api.deepseek.com")
+
+# LLM 响应缓存：messages → response text
+_llm_cache: dict[str, str] = {}
+_LLM_CACHE_MAX = 64
+
+
+def _llm_cache_key(messages: list) -> str:
+    """messages 列表的确定性 MD5 哈希作为缓存键。"""
+    raw = json.dumps(messages, sort_keys=True, ensure_ascii=False)
+    return hashlib.md5(raw.encode()).hexdigest()
 
 
 def _get_api_key():
@@ -24,6 +36,11 @@ def _get_api_key():
 
 
 def generate(messages, max_tokens=1024, model="deepseek-chat"):
+    # 缓存命中检查
+    key = _llm_cache_key(messages)
+    if key in _llm_cache:
+        return _llm_cache[key]
+
     api_key = _get_api_key()
 
     headers = {
@@ -41,7 +58,15 @@ def generate(messages, max_tokens=1024, model="deepseek-chat"):
     resp = requests.post(url, json=payload, headers=headers, timeout=60)
     resp.raise_for_status()
     data = resp.json()
-    return data["choices"][0]["message"]["content"]
+    result = data["choices"][0]["message"]["content"]
+
+    # 写入缓存，超过上限时淘汰最旧的
+    _llm_cache[key] = result
+    if len(_llm_cache) > _LLM_CACHE_MAX:
+        for _ in range(16):
+            _llm_cache.pop(next(iter(_llm_cache)), None)
+
+    return result
 
 
 def generate_stream(messages, max_tokens=1024, model="deepseek-chat"):

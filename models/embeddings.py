@@ -3,6 +3,8 @@ import torch
 import numpy as np
 import os
 import requests
+import re
+from functools import lru_cache
 from urllib.parse import quote
 
 _MODEL_NAME = "BAAI/bge-large-zh-v1.5"
@@ -29,7 +31,34 @@ def get_tokenizer_and_model():
         _model.eval()
     return _tokenizer, _model
 
+def _normalize_query(text: str) -> str:
+    """归一化查询文本用于缓存键。"""
+    return re.sub(r'\s+', '', text.strip().lower())
+
+
+@lru_cache(maxsize=128)
+def _cached_single_embedding(normalized: str, original: str) -> np.ndarray:
+    """缓存单条 query 的 embedding，keyed by 归一化后的文本。"""
+    tokenizer, model = get_tokenizer_and_model()
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    encoded = tokenizer([original], padding=True, truncation=True, max_length=512, return_tensors='pt')
+    for k, v in encoded.items():
+        encoded[k] = v.to(device)
+    with torch.no_grad():
+        out = model(**encoded)
+        last_hidden = out.last_hidden_state
+        mask = encoded['attention_mask'].unsqueeze(-1)
+        summed = (last_hidden * mask).sum(1)
+        counts = mask.sum(1).clamp(min=1)
+        return (summed / counts).cpu().numpy()[0]
+
+
 def embed_texts(texts, batch_size=32, device=None):
+    # 单条查询走缓存
+    if len(texts) == 1:
+        norm = _normalize_query(texts[0])
+        return np.array([_cached_single_embedding(norm, texts[0])])
+
     tokenizer, model = get_tokenizer_and_model()
     if device is None:
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -42,8 +71,7 @@ def embed_texts(texts, batch_size=32, device=None):
             for k, v in encoded.items():
                 encoded[k] = v.to(device)
             out = model(**encoded)
-            # 取 [CLS] 或池化：使用 mean pooling
-            last_hidden = out.last_hidden_state  # (b, seq, dim)
+            last_hidden = out.last_hidden_state
             mask = encoded['attention_mask'].unsqueeze(-1)
             summed = (last_hidden * mask).sum(1)
             counts = mask.sum(1).clamp(min=1)

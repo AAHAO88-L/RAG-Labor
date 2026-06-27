@@ -1,23 +1,6 @@
 """UI 辅助函数 — 侧边栏渲染、时间格式化"""
 
-import datetime
 import time as time_module
-
-
-def get_time_group(ts):
-    now = datetime.datetime.now()
-    today_start = datetime.datetime(now.year, now.month, now.day)
-    yesterday_start = today_start - datetime.timedelta(days=1)
-    week_ago_start = today_start - datetime.timedelta(days=7)
-    conv_date = datetime.datetime.fromtimestamp(ts)
-    if conv_date >= today_start:
-        return 0, "今天"
-    elif conv_date >= yesterday_start:
-        return 1, "昨天"
-    elif conv_date >= week_ago_start:
-        return 2, "7天内"
-    else:
-        return 3, "更早"
 
 
 def format_time_ago(ts):
@@ -69,6 +52,23 @@ def build_conv_list_html(convs, selected_id=None, search_query=""):
     return "\n".join(parts)
 
 
+def build_contract_list_html(contracts, selected_id=None):
+    """渲染合同列表 HTML。"""
+    if not contracts:
+        return ('<div class="contract-list-box" id="contract-list-inner">'
+                '<div style="padding:8px 12px;font-size:12px;color:#999;">暂无合同</div></div>')
+
+    items = "".join(
+        f'<div class="contract-item{" selected" if c["id"] == selected_id else ""}" '
+        f'data-id="{c["id"]}" onclick="selectContract(\'{c["id"]}\')">'
+        f'<span class="contract-item-icon">📝</span>'
+        f'<span class="contract-item-name">{c["filename"]}</span>'
+        f'</div>'
+        for c in contracts
+    )
+    return f'<div class="contract-list-box" id="contract-list-inner">{items}</div>'
+
+
 def build_user_area_html(username, avatar_b64=""):
     if avatar_b64:
         avatar_src = avatar_b64
@@ -98,18 +98,35 @@ def build_user_area_html(username, avatar_b64=""):
 
 
 PWD_MODAL_HTML = """
-<div id="pwd-overlay" class="pwd-overlay">
-  <div class="pwd-modal">
+<div id="pwd-overlay" class="modal-overlay">
+  <div class="modal-box">
     <h3>🔑 更改密码</h3>
     <input type="password" id="pwd-old" placeholder="原密码" autocomplete="off" />
     <input type="password" id="pwd-new" placeholder="新密码（至少4位）" autocomplete="off" />
     <input type="password" id="pwd-confirm" placeholder="确认新密码" autocomplete="off" />
-    <div id="pwd-err-msg" class="pwd-error"></div>
-    <div id="pwd-suc-msg" class="pwd-success"></div>
-    <div class="pwd-actions">
-      <button class="pwd-confirm" onclick="submitPwd()">确认更改</button>
-      <button class="pwd-cancel" onclick="hidePwdForm()">取消</button>
+    <div id="pwd-err-msg" class="modal-error"></div>
+    <div id="pwd-suc-msg" class="modal-success"></div>
+    <div class="modal-actions">
+      <button class="modal-confirm" onclick="submitPwd()">确认更改</button>
+      <button class="modal-cancel" onclick="hidePwdForm()">取消</button>
     </div>
   </div>
 </div>
 """
+
+
+DEL_MODAL_HTML = """
+<div id="del-overlay" class="modal-overlay">
+  <div class="modal-box">
+    <h3>删除对话</h3>
+    <p style="color:#666;font-size:14px;margin:0 0 20px;">确定要删除这条对话吗？此操作不可撤销。</p>
+    <div class="modal-actions">
+      <button class="modal-confirm-del" onclick="confirmDelConv()">确认删除</button>
+      <button class="modal-cancel" onclick="hideDelConfirm()">取消</button>
+    </div>
+  </div>
+</div>
+"""
+
+
+MODALS_HTML = PWD_MODAL_HTML + DEL_MODAL_HTML

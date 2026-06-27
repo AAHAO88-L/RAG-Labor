@@ -20,7 +20,7 @@
 │   ├── embeddings.py         # BGE 向量模型
 │   └── llm.py                # Deepseek API 调用
 ├── utils/
-│   └── text_loader.py        # 文本文件加载
+│   └── file_loader.py          # 多格式文件加载（PDF/DOCX/TXT）
 ├── data/                     # 法律法规文本
 ├── .env                      # API 配置（不上传）
 ├── .env.example              # 配置模板

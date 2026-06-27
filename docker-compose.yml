@@ -1,0 +1,67 @@
+version: "3.9"
+
+services:
+  rag-labor:
+    build: .
+    container_name: rag-labor
+    depends_on:
+      - pdf-parser
+    ports:
+      - "8000:8000"
+      - "7860:7860"
+    volumes:
+      # 模型缓存（避免每次启动下载）
+      - hf_models:/app/hf_models
+      # 向量数据库持久化
+      - chroma_db:/app/chroma_db
+      # 对话数据库持久化
+      - conversations:/app/conversations
+      # 上传临时文件
+      - uploads:/app/uploads
+    environment:
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      - DEEPSEEK_API_URL=${DEEPSEEK_API_URL:-https://api.deepseek.com}
+      - JWT_SECRET=${JWT_SECRET:-change-me-in-production}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://127.0.0.1:7860}
+      - HF_MIRROR=${HF_MIRROR:-https://hf-mirror.com}
+      - USE_RERANKER=${USE_RERANKER:-1}
+      - CHUNK_SIZE=${CHUNK_SIZE:-800}
+      - CHUNK_OVERLAP=${CHUNK_OVERLAP:-0.1}
+      # PDF 结构化解析
+      - STRUCTURED_PDF_PARSE=${STRUCTURED_PDF_PARSE:-0}
+      - PDF_PARSER_URL=http://pdf-parser:8001
+    restart: unless-stopped
+
+  pdf-parser:
+    build:
+      context: .
+      dockerfile: pdf_parser/Dockerfile
+    container_name: pdf-parser
+    ports:
+      - "8001:8001"
+    volumes:
+      - hf_models:/app/hf_models
+    environment:
+      - PIPELINE_A_DEVICE=cpu
+      - PDF_PARSER_HOST=0.0.0.0
+      - PDF_PARSER_PORT=8001
+      - PAGE_DPI=300
+      - HF_MIRROR=${HF_MIRROR:-https://hf-mirror.com}
+      # Qwen-VL (Phase 2)
+      - MULTIMODAL_LLM_API_KEY=${MULTIMODAL_LLM_API_KEY:-}
+      - MULTIMODAL_LLM_API_URL=${MULTIMODAL_LLM_API_URL:-}
+      - MULTIMODAL_LLM_MODEL=${MULTIMODAL_LLM_MODEL:-qwen-vl-plus}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+
+volumes:
+  hf_models:
+  chroma_db:
+  conversations:
+  uploads:
