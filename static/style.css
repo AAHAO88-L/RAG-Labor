@@ -3,9 +3,9 @@ footer { display: none !important; }
 #input-box { margin-top: 8px !important; }
 
 html, body { margin: 0 !important; padding: 0 !important; overflow: hidden !important; height: 100% !important; }
-#main-layout { flex-wrap: nowrap !important; height: 100vh !important; max-height: 100vh !important; overflow: hidden !important; gap: 0 !important; }
+#main-layout { display: flex !important; flex-wrap: nowrap !important; flex: 1 !important; min-height: 0 !important; overflow: hidden !important; gap: 0 !important; }
 
-#sidebar { width: 260px !important; min-width: 260px !important; max-width: 260px !important; display: flex !important; flex-direction: column !important; background: #f7f7f8 !important; border-right: 1px solid #e5e5e5 !important; overflow: hidden !important; height: 100vh !important; max-height: 100vh !important; padding: 0 !important; gap: 10px !important; }
+#sidebar { width: 260px !important; min-width: 260px !important; max-width: 260px !important; display: flex !important; flex-direction: column !important; background: #f7f7f8 !important; border-right: 1px solid #e5e5e5 !important; overflow: hidden !important; height: 100% !important; padding: 0 !important; gap: 10px !important; }
 #sidebar > .block { padding: 0 !important; margin: 0 !important; border: none !important; }
 #sidebar > .block:not(#conv-list-box) { flex-shrink: 0 !important; flex-grow: 0 !important; }
 #sidebar > .row { flex-shrink: 0 !important; flex-grow: 0 !important; }
@@ -148,7 +148,7 @@ html, body { margin: 0 !important; padding: 0 !important; overflow: hidden !impo
 
 .hidden-trigger { position: fixed !important; left: -9999px !important; opacity: 0 !important; height: 0 !important; overflow: hidden !important; }
 
-#main-content { display: flex !important; flex-direction: column !important; height: 100vh !important; max-height: 100vh !important; min-height: 0 !important; overflow: hidden !important; }
+#main-content { display: flex !important; flex-direction: column !important; min-height: 0 !important; overflow: hidden !important; flex: 1 !important; }
 #main-content > #main-chat { flex: 1 1 0 !important; min-height: 0 !important; overflow-y: auto !important; }
 #main-content > #input-box { flex: 0 0 auto !important; }
 

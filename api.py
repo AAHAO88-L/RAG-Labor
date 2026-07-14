@@ -12,7 +12,7 @@ load_dotenv()
 
 from fastapi import FastAPI, Depends, HTTPException, status, Query, UploadFile, File, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse, JSONResponse
 from pydantic import BaseModel
 
 import database as db
@@ -21,15 +21,52 @@ from utils.timing import init_request_timings, get_timings, log_timings
 
 logger = logging.getLogger(__name__)
 
+STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
+_INDEX_PATH = os.path.join(STATIC_DIR, "index.html")
+
 app = FastAPI(title="RAG-Labor API", version="2.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[o.strip() for o in os.getenv("CORS_ORIGINS", "http://127.0.0.1:7860").split(",")],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ── SPA Middleware ──
+
+
+@app.middleware("http")
+async def spa_middleware(request: Request, call_next):
+    """Serve static files and SPA index.html for non-API GET requests."""
+    path = request.url.path
+
+    # Root path
+    if path == "/" and request.method == "GET":
+        return FileResponse(_INDEX_PATH)
+
+    # Static files
+    if path.startswith("/static/") and request.method == "GET":
+        rel = path[len("/static/"):]
+        file_path = os.path.normpath(os.path.join(STATIC_DIR, rel))
+        if file_path.startswith(os.path.normpath(STATIC_DIR)) and os.path.isfile(file_path):
+            return FileResponse(file_path)
+
+    # Let the normal routing handle it
+    try:
+        response = await call_next(request)
+    except Exception as exc:
+        if isinstance(exc, HTTPException):
+            response = JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+        else:
+            raise
+
+    # SPA fallback for 404s on non-API GET requests
+    if response.status_code == 404 and request.method == "GET" and not path.startswith("/api/"):
+        return FileResponse(_INDEX_PATH)
+
+    return response
 
 
 # ── 请求/响应模型 ──
@@ -454,8 +491,17 @@ async def stream_query(req: QueryRequest, request: Request, user: dict = Depends
             })
         yield f"data: {json.dumps({'sources': source_list}, ensure_ascii=False)}\n\n"
 
+        # 心跳定时器（每 15 秒发一次注释保持连接）
+        import asyncio
+        last_heartbeat = asyncio.get_event_loop().time()
+
         try:
             for idx, chunk in enumerate(llm.generate_stream(msgs)):
+                # 心跳检测
+                now = asyncio.get_event_loop().time()
+                if now - last_heartbeat > 15:
+                    yield ": heartbeat\n\n"
+                    last_heartbeat = now
                 if idx % 5 == 0 and await request.is_disconnected():
                     logger.info("[%s] client disconnected after %d tokens", request_id, idx)
                     interrupted = True

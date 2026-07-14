@@ -1,4 +1,4 @@
-"""一键启动脚本 — 同时启动 FastAPI 后端 + Gradio 前端"""
+"""一键启动脚本 — 启动 FastAPI 后端（含静态文件服务 + SPA）"""
 
 import subprocess
 import sys
@@ -10,7 +10,6 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 
 
 def _stream_stdout(proc, prefix):
-    """在独立线程中读取子进程输出，避免互相阻塞。"""
     for line in iter(proc.stdout.readline, ""):
         if line:
             print(f"[{prefix}] {line}", end="", flush=True)
@@ -33,26 +32,13 @@ def main():
         errors="replace",
     )
 
-    gradio_proc = subprocess.Popen(
-        [sys.executable, "app.py"],
-        cwd=ROOT,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        encoding="utf-8",
-        errors="replace",
-    )
-
-    t1 = threading.Thread(target=_stream_stdout, args=(api_proc, "API"), daemon=True)
-    t2 = threading.Thread(target=_stream_stdout, args=(gradio_proc, "Gradio"), daemon=True)
-    t1.start()
-    t2.start()
+    t = threading.Thread(target=_stream_stdout, args=(api_proc, "API"), daemon=True)
+    t.start()
 
     def cleanup(signum=None, frame=None):
         print("\n正在关闭服务...")
         api_proc.terminate()
-        gradio_proc.terminate()
         api_proc.wait()
-        gradio_proc.wait()
         print("已关闭")
         sys.exit(0)
 
@@ -60,15 +46,14 @@ def main():
     signal.signal(signal.SIGTERM, cleanup)
 
     print("[OK] FastAPI 后端: http://127.0.0.1:8000")
-    print("[OK] Gradio 界面: http://127.0.0.1:7860")
+    print("[OK] 前端 SPA: http://127.0.0.1:8000")
     print()
     print("按 Ctrl+C 停止所有服务")
 
     try:
         signal.pause()
     except AttributeError:
-        t1.join()
-        t2.join()
+        t.join()
     except KeyboardInterrupt:
         cleanup()
 

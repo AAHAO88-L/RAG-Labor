@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>劳动法智能助手</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  [v-cloak] { display: none; }
+  body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  .sidebar-new-btn-wrap { padding: 0 12px; }
+  .sidebar-new-btn-wrap button { height: 40px !important; width: 100% !important; border: none !important; background: transparent !important; color: #1f1f1f !important; font-size: 13px !important; font-weight: 500 !important; border-radius: 6px !important; cursor: pointer !important; text-align: left !important; padding: 0 12px !important; transition: background .1s; }
+  .sidebar-new-btn-wrap button:hover { background: #eaeaea !important; }
+  .conv-empty { text-align: center; padding: 40px 12px; color: #999; font-size: 13px; }
+  #pwd-overlay, #del-overlay { display: none; }
+  #pwd-overlay.show, #del-overlay.show { display: flex; }
+  .spinner { width: 20px; height: 20px; border: 2px solid #e5e5e5; border-top-color: #2563eb; border-radius: 50%; animation: spin .6s linear infinite; display: inline-block; vertical-align: middle; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .message-row { margin-bottom: 16px; display: flex; }
+  .message-row.user { justify-content: flex-end; }
+  .message-row.assistant { justify-content: flex-start; }
+  .message-bubble { max-width: 75%; padding: 12px 16px; border-radius: 12px; line-height: 1.6; font-size: 14px; word-wrap: break-word; white-space: pre-wrap; }
+  .message-row.user .message-bubble { background: #2563eb; color: #fff; border-bottom-right-radius: 4px; }
+  .message-row.assistant .message-bubble { background: #f3f4f6; color: #1f1f1f; border-bottom-left-radius: 4px; }
+  .message-bubble p { margin: 0 0 8px; }
+  .message-bubble p:last-child { margin-bottom: 0; }
+  #review-badge { display: flex; align-items: center; gap: 8px; padding: 8px 16px; background: #eff6ff; border-bottom: 1px solid #bfdbfe; font-size: 13px; color: #1d4ed8; font-weight: 500; flex-shrink: 0; }
+  #review-badge .end-review-btn { margin-left: auto; padding: 3px 10px; border: 1px solid #93c5fd; border-radius: 6px; background: transparent; color: #1d4ed8; font-size: 12px; cursor: pointer; }
+  #review-badge .end-review-btn:hover { background: #dbeafe; }
+  .chat-end { min-height: 20px; }
+  .sidebar-upload-btn {
+    display: block; width: calc(100% - 24px); margin: 4px 12px; padding: 8px 12px;
+    border: 1.5px dashed #2563eb; border-radius: 8px; background: transparent;
+    color: #2563eb; font-size: 13px; font-weight: 500; cursor: pointer; text-align: center;
+    transition: background .1s,color .1s; box-sizing: border-box;
+  }
+  .sidebar-upload-btn:hover { background: #2563eb; color: #fff; }
+  .doc-list-box { max-height: 200px; overflow-y: auto; border-top: 1px solid #e5e5e5; padding: 4px 0; }
+  .doc-item { display: flex; align-items: center; padding: 6px 8px; font-size: 12px; color: #333; border-radius: 4px; gap: 6px; }
+  .doc-item:hover { background: #eaeaea; }
+  .doc-del-btn { width: 20px; height: 20px; border: none; background: transparent; color: #999; cursor: pointer; border-radius: 4px; font-size: 12px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; padding: 0; }
+  .doc-del-btn:hover { background: #dc2626; color: #fff; }
+  .contract-list-box { max-height: 180px; overflow-y: auto; border-top: 1px solid #e5e5e5; padding: 4px 0; }
+  .contract-item { display: flex; align-items: center; padding: 6px 8px; font-size: 12px; color: #333; border-radius: 4px; gap: 6px; cursor: pointer; }
+  .contract-item:hover { background: #eaeaea; }
+  .contract-item.selected { background: #dbeafe; color: #1d4ed8; font-weight: 500; }
+  .contract-item-icon { flex-shrink: 0; font-size: 14px; }
+  .contract-item-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+  .source-toggle.open { transform: rotate(90deg); }
+  .source-body.open { display: block; }
+  .source-body { display: none; }
+  #upload-status, #contract-status { min-height: 0; padding: 0; }
+</style>
+</head>
+<body>
+<div id="app" v-cloak style="height:100%;display:flex;flex-direction:column;">
+  <!-- ======== 登录面板 ======== -->
+  <div v-if="!isLoggedIn" style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;background:#f9fafb;">
+    <div style="text-align:center;padding:40px 0 20px;">
+      <h1 style="font-size:28px;font-weight:600;margin:0 0 8px;">劳动法智能助手</h1>
+      <p style="color:#888;margin:0;">登录或注册以继续</p>
+    </div>
+    <div style="width:100%;max-width:360px;">
+      <input v-model="loginUsername" placeholder="用户名" style="width:100%;padding:10px 14px;border:1.5px solid #d1d5db;border-radius:8px;margin-bottom:12px;font-size:14px;box-sizing:border-box;outline:none;" @keyup.enter="login">
+      <input v-model="loginPassword" type="password" placeholder="密码" style="width:100%;padding:10px 14px;border:1.5px solid #d1d5db;border-radius:8px;margin-bottom:16px;font-size:14px;box-sizing:border-box;outline:none;" @keyup.enter="login">
+      <div v-if="loginMsg" style="margin-bottom:12px;padding:8px 12px;border-radius:6px;font-size:13px;background:#fef2f2;color:#dc2626;">{{ loginMsg }}</div>
+      <div style="display:flex;gap:8px;">
+        <button @click="login" style="flex:1;padding:10px;background:#2563eb;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:500;cursor:pointer;">登录</button>
+        <button @click="register" style="flex:1;padding:10px;background:#e5e7eb;color:#374151;border:none;border-radius:8px;font-size:14px;font-weight:500;cursor:pointer;">注册</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======== 主面板 ======== -->
+  <div v-else id="main-panel" style="flex:1;display:flex;min-height:0;">
+    <div id="main-layout">
+      <!-- 侧边栏 -->
+      <div id="sidebar">
+        <div class="sidebar-spacer"></div>
+        <div class="sidebar-new-btn-wrap">
+          <button @click="newChat">+ 新建对话</button>
+        </div>
+        <div style="padding:0 12px;height:40px;">
+          <input v-model="searchQuery" @input="searchConversations" placeholder="搜索历史对话..." style="width:100%;height:32px;border-radius:6px;font-size:13px;padding:0 10px;border:1.5px solid #d1d5db;outline:none;box-sizing:border-box;">
+        </div>
+        <button class="sidebar-upload-btn" @click="triggerFileUpload">📄 上传法律文件</button>
+        <div v-if="uploadStatus" v-html="uploadStatus" style="padding:2px 12px;font-size:12px;"></div>
+        <input type="file" id="h-file-upload" @change="uploadDoc" accept=".pdf,.docx,.txt,.md,.zip" style="display:none;">
+        <button class="sidebar-upload-btn" style="margin-top:0;" @click="toggleDocList">📋 已索引文件</button>
+        <div v-if="docListVisible" style="margin:0 12px;">
+          <div class="doc-list-box">
+            <div v-if="documents.length===0" style="padding:8px 12px;font-size:12px;color:#999;">暂无已索引文件</div>
+            <div v-for="doc in documents" :key="doc.path" class="doc-item">
+              <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">📄 {{ doc.name }}</span>
+              <button class="doc-del-btn" @click="deleteDoc(doc.path)" title="删除">✕</button>
+            </div>
+          </div>
+        </div>
+        <button class="sidebar-upload-btn" @click="triggerContractUpload">📝 上传合同审查</button>
+        <div v-if="contractStatus" v-html="contractStatus" style="padding:2px 12px;font-size:12px;"></div>
+        <input type="file" id="h-contract-upload" @change="uploadContract" accept=".pdf,.docx,.txt,.md" style="display:none;">
+        <button class="sidebar-upload-btn" style="margin-top:0;" @click="toggleContractList">📑 我的合同</button>
+        <div v-if="contractListVisible" style="margin:0 12px;">
+          <div class="contract-list-box">
+            <div v-if="contracts.length===0" style="padding:8px 12px;font-size:12px;color:#999;">暂无合同</div>
+            <div v-for="c in contracts" :key="c.id" class="contract-item" :class="{selected:reviewContractId===c.id}" @click="selectContract(c.id)">
+              <span class="contract-item-icon">📝</span>
+              <span class="contract-item-name">{{ c.filename }}</span>
+            </div>
+          </div>
+        </div>
+        <div id="conv-list-box">
+          <div v-if="filteredConversations.length===0" class="conv-empty">暂无对话</div>
+          <div class="conv-list-wrap"><div class="conv-list">
+            <div v-for="conv in filteredConversations" :key="conv.id" class="conv-item" :class="{selected:selectedConvId===conv.id}" @click="selectConversation(conv.id)">
+              <span class="conv-item-title">{{ conv.pinned ? '📌' : '' }}{{ truncate(conv.title, 24) }}</span>
+              <span class="conv-item-time">{{ timeAgo(conv.mtime) }}</span>
+              <span class="conv-item-actions">
+                <button class="conv-action-btn" :title="conv.pinned?'取消置顶':'置顶'" @click.stop="pinConversation(conv.id)">📌</button>
+                <button class="conv-action-btn" title="删除" @click.stop="delTarget=conv.id;showDelModal=true">🗑</button>
+              </span>
+            </div>
+          </div></div>
+        </div>
+        <div class="user-area-wrap">
+          <div class="user-area" :class="{'menu-open':userMenuOpen}">
+            <div class="user-trigger" @click="userMenuOpen=!userMenuOpen">
+              <img class="user-avatar" :src="avatarSrc" alt="avatar" />
+              <span class="user-name">{{ username }}</span>
+              <span class="user-arrow">▾</span>
+            </div>
+            <div class="user-dropdown" :class="{open:userMenuOpen}" @click.stop>
+              <div class="user-dropdown-item" @click="triggerAvatarUpload">更改头像</div>
+              <div class="user-dropdown-item" @click="showPwdModal=true">更改密码</div>
+              <div class="user-dropdown-item user-dropdown-exit" @click="logout">退出登录</div>
+            </div>
+          </div>
+        </div>
+        <input type="file" id="h-avatar-upload" @change="uploadAvatar" accept="image/*" style="display:none;">
+      </div>
+
+      <!-- 主内容区 -->
+      <div id="main-content">
+        <div v-if="reviewContractName" id="review-badge">
+          📋 正在审查：{{ reviewContractName }}
+          <button class="end-review-btn" @click="endReview">结束审查</button>
+        </div>
+        <div id="main-chat" ref="chatContainer" style="flex:1;min-height:0;overflow-y:auto;padding:16px 24px;">
+          <div style="max-width:860px;margin:0 auto;">
+          <template v-for="(msg, i) in messages" :key="i">
+            <div class="message-row" :class="msg.role">
+              <div class="message-bubble" v-html="renderContent(msg.content)"></div>
+            </div>
+          </template>
+          <div class="chat-end"></div>
+          </div>
+        </div>
+        <div v-if="sources.length>0" style="max-height:250px;overflow-y:auto;border-top:1px solid #e5e5e5;padding:8px 24px;flex-shrink:0;">
+          <div style="max-width:860px;margin:0 auto;">
+          <div class="sources-title">📚 参考来源（{{ sources.length }} 条）</div>
+          <div v-for="(s, idx) in sources" :key="idx" class="source-item">
+            <div class="source-header" @click="s._open=!s._open">
+              <span class="source-icon">📄</span>
+              <span class="source-name">{{ s.source }}</span>
+              <span v-if="s.article" class="source-article">{{ s.article }}</span>
+              <span class="source-score">得分 {{ s.score }}</span>
+              <span class="source-toggle" :class="{open:s._open}">▸</span>
+            </div>
+            <div class="source-body" :class="{open:s._open}">{{ s.text_preview }}…</div>
+          </div>
+          </div>
+        </div>
+        <div id="input-box" style="flex-shrink:0;">
+          <div style="max-width:860px;margin:0 auto;padding:8px 24px;display:flex;gap:8px;">
+            <textarea v-model="inputMessage" @keydown.enter.prevent="sendMessage" placeholder="请输入您的劳动法问题..." style="flex:1;min-height:56px;border:1.5px solid #d1d5db;border-radius:12px;padding:12px 16px;font-size:14px;resize:none;outline:none;box-sizing:border-box;font-family:inherit;" :disabled="isStreaming"></textarea>
+            <button @click="sendMessage" :disabled="isStreaming || !inputMessage.trim()" style="align-self:flex-end;padding:10px 20px;background:#2563eb;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:500;cursor:pointer;white-space:nowrap;opacity:1;">发送</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 密码弹窗 -->
+  <div id="pwd-overlay" class="modal-overlay" :class="{show:showPwdModal}" @click.self="showPwdModal=false">
+    <div class="modal-box">
+      <h3>🔑 更改密码</h3>
+      <input type="password" v-model="pwdOld" placeholder="原密码" autocomplete="off" />
+      <input type="password" v-model="pwdNew" placeholder="新密码（至少4位）" autocomplete="off" />
+      <input type="password" v-model="pwdConfirm" placeholder="确认新密码" autocomplete="off" />
+      <div v-if="pwdError" class="modal-error show">{{ pwdError }}</div>
+      <div v-if="pwdSuccess" class="modal-success show">{{ pwdSuccess }}</div>
+      <div class="modal-actions">
+        <button class="modal-confirm" @click="submitPwd">确认更改</button>
+        <button class="modal-cancel" @click="showPwdModal=false">取消</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 删除确认弹窗 -->
+  <div id="del-overlay" class="modal-overlay" :class="{show:showDelModal}" @click.self="showDelModal=false">
+    <div class="modal-box">
+      <h3>删除对话</h3>
+      <p style="color:#666;font-size:14px;margin:0 0 20px;">确定要删除这条对话吗？此操作不可撤销。</p>
+      <div class="modal-actions">
+        <button class="modal-confirm-del" @click="confirmDelete">确认删除</button>
+        <button class="modal-cancel" @click="showDelModal=false">取消</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/static/vue.global.prod.js"></script>
+<script src="/static/vue-app.js"></script>
+</body>
+</html>
